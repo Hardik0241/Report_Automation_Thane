@@ -27,8 +27,6 @@ SALES_EMPLOYEES = [
     # Example: "Employee1", "Employee2", "Employee3",
 ]
 
-HR_EMPLOYEES = []  # No HR for branch repos
-
 # ============================================================
 # EMAIL TO NAME MAPPING - SALES ONLY
 # ============================================================
@@ -38,14 +36,11 @@ SALES_EMAIL_MAP = {
     # Example: "employee1.branch@gmail.com": "Employee1",
 }
 
-HR_EMAIL_MAP = {}  # No HR for branch repos
-
 # ============================================================
 # Build Gmail Query with specific senders
 # ============================================================
 ALL_SALES_EMAILS = list(SALES_EMAIL_MAP.keys())
-ALL_HR_EMAILS = []  # No HR
-ALL_ALLOWED_EMAILS = ALL_SALES_EMAILS + ALL_HR_EMAILS
+ALL_ALLOWED_EMAILS = ALL_SALES_EMAILS
 
 FROM_QUERY = " OR ".join([f"from:{email}" for email in ALL_ALLOWED_EMAILS])
 GMAIL_QUERY = f"({FROM_QUERY}) is:unread"
