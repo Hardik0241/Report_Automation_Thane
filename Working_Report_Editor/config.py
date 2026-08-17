@@ -23,17 +23,34 @@ if creds_json:
 # ============================================================
 # ⚠️ UPDATE THIS LIST WITH BRANCH-SPECIFIC EMPLOYEES
 SALES_EMPLOYEES = [
-    # Add branch employees here
-    # Example: "Employee1", "Employee2", "Employee3",
+    "Akanksha","Ajay","Mohit","Shivani","Bhagyashree","Sahil",
+    "Shubham","Tisha","Vidhi","Subhashini","Nayum","Hriday",
+    "Swati","Tanya","Laveena","Aadarsh","Roy","Mohit",    
 ]
 
 # ============================================================
 # EMAIL TO NAME MAPPING - SALES ONLY
 # ============================================================
-# ⚠️ UPDATE THIS MAP WITH BRANCH-SPECIFIC EMAILS
+
 SALES_EMAIL_MAP = {
-    # Add branch emails here
-    # Example: "employee1.branch@gmail.com": "Employee1",
+    "Akanksha.edujam@gmail.com": "Akanksha",
+    "nmims.ajaygupta@gmail.com": "Ajay",
+    "mohit.edujam@gmail.com": "Mohit",
+    "shivanisingh.edujam@gmail.com": "Shivani",
+    "bhagyashree.edujam@gmail.com": "Bhagyashree",
+    "sahilm.edujam@gmail.com": "Sahil",
+    "shubhams.edujam@gmail.com": "Shubham",
+    "tishab.edujam@gmail.com": "Tisha",
+    "vidhi.edujam@gmail.com": "Vidhi",
+    "subhashini.edujam@gmail.com": "Subhashini",
+    "nayum.edujam@gmail.com": "Nayum",
+    "hriday.edujam@gmail.com": "Hriday",
+    "swatiw.edujam@gmail.com": "Swati",
+    "tanyac.edujam@gmail.com": "Tanya",
+    "laveena.edujam@gmail.com": "Laveena",
+    "aadarshd.edujam@gmail.com": "Aadarsh",
+    "roy.edujam@gmail.com": "Roy",
+    "mohitr.edujam@gmail.com": "Mohit",
 }
 
 # ============================================================
