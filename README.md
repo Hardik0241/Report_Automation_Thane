@@ -9,7 +9,7 @@ Automated email reading from Gmail → AI parsing (Gemini) → Data writing to G
 | **Branch Name** | Thane |
 | **Gmail Account** | hardik.misedujam@gmail.com |
 | **Google Sheet** | Thane Sales Reports |
-| **Department** | Sales Only (No HR) |
+| **Department** | Sales Only |
 | **Schedule** | Every 30 min, Mon-Fri, 3:00 PM to 9:00 PM IST |
 
 ## 📋 System Overview
