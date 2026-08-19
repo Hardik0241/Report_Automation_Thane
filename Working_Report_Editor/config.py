@@ -1,6 +1,6 @@
 """
-config.py — Complete configuration for Report Automation System
-BRANCH REPO VERSION - Sales Only
+config.py — Configuration for Report Automation System
+BRANCH: THANE - Sales Only
 """
 
 import os
@@ -9,9 +9,8 @@ import json
 # ============================================================
 # LOAD SECRETS (Environment Variables / GitHub Secrets)
 # ============================================================
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY_B1", "")
-SALES_SPREADSHEET_ID = os.environ.get("SALES_SPREADSHEET_ID_B1", "")
-
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY_THANE", "")
+SALES_SPREADSHEET_ID = os.environ.get("THANE_SALES_SPREADSHEET_ID", "")
 GOOGLE_CREDENTIALS_DICT = {}
 
 creds_json = os.environ.get("GOOGLE_CREDENTIALS", "")
@@ -21,17 +20,15 @@ if creds_json:
 # ============================================================
 # EMPLOYEE LISTS - SALES ONLY
 # ============================================================
-# ⚠️ UPDATE THIS LIST WITH BRANCH-SPECIFIC EMPLOYEES
 SALES_EMPLOYEES = [
-    "Akanksha","Ajay","Mohit","Shivani","Bhagyashree","Sahil",
-    "Shubham","Tisha","Vidhi","Subhashini","Nayum","Hriday",
-    "Swati","Tanya","Laveena","Aadarsh","Roy","Mohit",    
+    "Akanksha", "Ajay", "Mohit", "Shivani", "Bhagyashree", "Sahil",
+    "Shubham", "Tisha", "Vidhi", "Subhashini", "Nayum", "Hriday",
+    "Swati", "Tanya", "Laveena", "Aadarsh", "Roy", "Mohit",
 ]
 
 # ============================================================
 # EMAIL TO NAME MAPPING - SALES ONLY
 # ============================================================
-
 SALES_EMAIL_MAP = {
     "Akanksha.edujam@gmail.com": "Akanksha",
     "nmims.ajaygupta@gmail.com": "Ajay",
@@ -63,22 +60,22 @@ FROM_QUERY = " OR ".join([f"from:{email}" for email in ALL_ALLOWED_EMAILS])
 GMAIL_QUERY = f"({FROM_QUERY}) is:unread"
 
 # ============================================================
-# MAX EMAILS PER RUN - Process ALL emails
+# MAX EMAILS PER RUN
 # ============================================================
 MAX_EMAILS_PER_RUN = 30
 
 # ============================================================
 # SALES DEADLINE RULE - 09:00 PM IST
 # ============================================================
-SALES_DEADLINE_HOUR = 21    # 09:00 PM
+SALES_DEADLINE_HOUR = 21
 SALES_DEADLINE_MINUTE = 0
 
 # ============================================================
 # SCHEDULER ACTIVE WINDOW - 3:00 PM to 09:00 PM IST
 # ============================================================
-ACTIVE_START_HOUR = 15      # 3:00 PM
+ACTIVE_START_HOUR = 15
 ACTIVE_START_MINUTE = 0
-ACTIVE_END_HOUR = 21        # 09:00 PM
+ACTIVE_END_HOUR = 21
 ACTIVE_END_MINUTE = 0
 
 # ============================================================
@@ -100,11 +97,7 @@ SALES_COLUMN_MAPPING = {
     "Report Status": 10,
 }
 
-# No HR column mapping for branch repos
-HR_COLUMN_MAPPING = {}
-
 SALES_HEADERS = list(SALES_COLUMN_MAPPING.keys())
-HR_HEADERS = []  # No HR headers
 
 # ============================================================
 # GMAIL CONFIGURATION
@@ -126,12 +119,10 @@ VALIDATION_RULES = {
         "tolerance_pct": 5,
         "name_fuzzy_threshold": 0.80,
     },
-    # No HR validation rules
 }
 
 DEPARTMENT_KEYWORDS = {
-    "Sales": ["sales", "callyzer", "dialer", "prospect", "dialed", "dial", "outgoing"],
-    "HR": [],  # No HR keywords
+    "Sales": ["sales", "callyzer", "dialer", "prospect", "dialed", "dial", "outgoing", "dails", "prospects"]
 }
 
 DATE_PATTERNS = [
