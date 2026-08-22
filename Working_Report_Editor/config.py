@@ -92,7 +92,7 @@ SALES_COLUMN_MAPPING = {
     "Duration": 5,
     "Prospect": 6,
     "Ref Added": 7,
-    "status Viewed": 8,
+    "Status Viewed": 8,
     "Document Collected": 9,
     "Report Status": 10,
 }
