@@ -8,6 +8,7 @@ UPDATED: Removed ALL status messages from Report Status column (always blank exc
 UPDATED: Added logic to mark Sales employees as "Not Sent" if they submit after 09:00 PM IST
 UPDATED: Added graceful error handling for Sheets connection failures
 UPDATED: Removed HR references (Sales only branch)
+UPDATED: Added pre-marking of "Not Sent" BEFORE processing emails to ensure all employees get marked even if no emails received
 """
 
 import logging
@@ -181,6 +182,7 @@ class ReportProcessor:
 
             date_str = received_timestamp_to_date(received_ms) if received_ms else received_at.strftime("%d-%m-%Y")
 
+            # Mark "Not Sent" for all employees on this date (will clear for those who submitted)
             self._mark_all_as_not_sent_for_date(dept, date_str)
 
             if not self._is_today_date(date_str):
@@ -213,6 +215,7 @@ class ReportProcessor:
                     report_status = "Not Sent"
                     logger.info(f"⚠️ Sales employee {canonical_name} submitted after {SALES_DEADLINE_HOUR:02d}:00 - marked as 'Not Sent'")
                 else:
+                    # If submitted on time, clear the "Not Sent" status
                     report_status = ""
 
             email_data["report_status"] = report_status
@@ -252,6 +255,22 @@ class ReportProcessor:
         logger.info("=" * 60)
         logger.info("Report Processor started")
 
+        # ✅ STEP 1: Get today's date
+        today_date = datetime.now().strftime("%d-%m-%Y")
+        dept = "Sales"
+
+        # ✅ STEP 2: PRE-MARK all employees as "Not Sent" for today
+        # This ensures even if NO emails are received, everyone gets "Not Sent"
+        try:
+            logger.info(f"📝 Pre-marking all {dept} employees as 'Not Sent' for {today_date}")
+            self.sheets.ensure_date_for_all_employees(dept, today_date)
+            self.sheets.ensure_status_column(dept, today_date)
+            self._mark_all_as_not_sent_for_date(dept, today_date)
+            logger.info(f"✅ Pre-marked all employees as 'Not Sent' for {today_date}")
+        except Exception as e:
+            logger.error(f"Failed to pre-mark 'Not Sent' for {today_date}: {e}")
+
+        # ✅ STEP 3: Fetch and process emails
         emails = self.gmail.fetch_emails()
         logger.info(f"📬 Fetched {len(emails)} email(s) to process")
 
@@ -260,7 +279,17 @@ class ReportProcessor:
             logger.info(f"Processing {idx}/{len(emails)}")
             results.append(self.process_email(email))
 
+        # ✅ STEP 4: Flush all writes to Google Sheets
         self._flush_writes()
+
+        # ✅ STEP 5: Finalize - Re-mark "Not Sent" for any remaining employees without data
+        # This ensures employees who didn't submit remain "Not Sent"
+        try:
+            logger.info(f"📝 Finalizing 'Not Sent' marks for {today_date}")
+            self._mark_all_as_not_sent_for_date(dept, today_date)
+            logger.info(f"✅ Finalized 'Not Sent' marks for {today_date}")
+        except Exception as e:
+            logger.error(f"Failed to finalize 'Not Sent' for {today_date}: {e}")
 
         success = sum(1 for r in results if r.get("status") == "SUCCESS")
         failed = sum(1 for r in results if r.get("status") == "FAILED")
