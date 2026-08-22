@@ -2,14 +2,14 @@
 sheets_service.py — Google Sheets operations with Calibri font, size 13, center alignment
 BRANCH: THANE - Sales Only
 Handles: Not Sent, actual data
-Formatting: Dark black text (#000000), All borders on ALL data cells (full table)
+Formatting: Dark black text (#000000), All borders on data cells (first 12 columns only)
 UPDATED: Fixed write_batch() to properly clear "Not Sent" status when data is written
 UPDATED: Supports writing "Not Sent" status for late Sales submissions
 UPDATED: Added retry logic with exponential backoff for connection failures (503 errors)
 UPDATED: Added timeout to prevent hanging
 UPDATED: Removed HR references (Sales only branch)
 UPDATED: Pre-populates employees with current date when creating new sheet
-UPDATED: Ensures ALL cells in the table have borders (full table formatting)
+UPDATED: Borders applied ONLY to first 12 columns (A to L) - the actual data table
 """
 
 import logging
@@ -35,6 +35,9 @@ from error_handler import with_retry
 
 logger = logging.getLogger(__name__)
 _SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+
+# Maximum columns for data table (A to L = 12 columns)
+MAX_DATA_COLUMNS = 12
 
 
 def _get_credentials():
@@ -160,10 +163,10 @@ class SheetsService:
         if key in self._cache_timestamp:
             del self._cache_timestamp[key]
 
-    def _apply_full_table_formatting(self, ws: gspread.Worksheet) -> None:
+    def _apply_table_formatting(self, ws: gspread.Worksheet) -> None:
         """
-        Apply formatting (font, alignment, borders) to ALL cells in the table.
-        This ensures NO cell is left without borders.
+        Apply formatting (font, alignment, borders) to data table cells.
+        Borders applied ONLY to first 12 columns (A to L).
         """
         try:
             all_values = ws.get_all_values()
@@ -171,7 +174,8 @@ class SheetsService:
                 return
             
             max_row = len(all_values)
-            max_col = max(len(row) for row in all_values) if all_values else len(SALES_HEADERS)
+            # Only use first 12 columns for borders (A to L)
+            max_col = min(MAX_DATA_COLUMNS, max(len(row) for row in all_values) if all_values else len(SALES_HEADERS))
             
             # Ensure we have at least headers
             if max_row < 1:
@@ -179,9 +183,8 @@ class SheetsService:
             
             # Add some buffer for future data (format up to 500 rows)
             max_row = min(max_row + 50, 500)
-            max_col = min(max_col + 5, 30)  # Add buffer for columns
             
-            # Create range for entire table
+            # Create range for entire table (A1 to L{max_row})
             range_str = f"A1:{gspread.utils.rowcol_to_a1(max_row, max_col)}"
             
             sheet_id = ws.id
@@ -221,27 +224,29 @@ class SheetsService:
             }]
             
             ws.spreadsheet.batch_update({"requests": requests})
-            logger.info(f"✅ Applied full table formatting to '{ws.title}' - {max_row} rows x {max_col} columns")
+            logger.info(f"✅ Applied table formatting to '{ws.title}' - {max_row} rows x {max_col} columns (A to L)")
             
         except Exception as e:
-            logger.warning(f"Full table formatting failed for {ws.title}: {e}")
+            logger.warning(f"Table formatting failed for {ws.title}: {e}")
 
     def _apply_formatting_to_range(self, ws: gspread.Worksheet, range_str: str = None) -> None:
         """
         Apply formatting to a specific range. If no range is provided, format the entire table.
+        Borders applied ONLY to first 12 columns.
         """
         try:
             if range_str is None:
-                self._apply_full_table_formatting(ws)
+                self._apply_table_formatting(ws)
                 return
             
             # Parse the range
             sheet_id = ws.id
             
-            # Get all values to determine max columns
+            # Get all values to determine max rows
             all_values = ws.get_all_values()
             max_row = len(all_values)
-            max_col = max(len(row) for row in all_values) if all_values else len(SALES_HEADERS)
+            # Only use first 12 columns
+            max_col = min(MAX_DATA_COLUMNS, max(len(row) for row in all_values) if all_values else len(SALES_HEADERS))
             
             # Parse range to get start and end
             start_row_num = 1
@@ -281,9 +286,14 @@ class SheetsService:
                     start_col_num = self._col_letter_to_index(col_letters)
                     end_col_num = start_col_num
             
+            # Ensure we don't exceed 12 columns
+            end_col_num = min(end_col_num, MAX_DATA_COLUMNS)
+            if start_col_num > MAX_DATA_COLUMNS:
+                # If formatting column beyond 12, skip (no borders needed)
+                return
+            
             # Ensure we don't go beyond data limits
             end_row_num = min(end_row_num, max_row + 10)
-            end_col_num = min(end_col_num, max_col + 5)
             
             requests = [{
                 "repeatCell": {
@@ -320,7 +330,7 @@ class SheetsService:
             }]
             
             ws.spreadsheet.batch_update({"requests": requests})
-            logger.info(f"✅ Applied formatting to '{ws.title}' - Range: {range_str}")
+            logger.info(f"✅ Applied formatting to '{ws.title}' - Range: {range_str} (within A-L)")
             
         except Exception as e:
             logger.warning(f"Formatting failed for {ws.title}: {e}")
@@ -342,13 +352,17 @@ class SheetsService:
             headers = ws.row_values(1)
             if "Report Status" not in headers:
                 last_col = len(headers) + 1
-                ws.update_cell(1, last_col, "Report Status")
-                # Format the entire table after adding column
-                self._apply_full_table_formatting(ws)
-                logger.info(f"Added 'Report Status' column to {ws.title}")
+                # Only add if within 12 columns
+                if last_col <= MAX_DATA_COLUMNS:
+                    ws.update_cell(1, last_col, "Report Status")
+                    # Format the entire table after adding column
+                    self._apply_table_formatting(ws)
+                    logger.info(f"Added 'Report Status' column to {ws.title}")
+                else:
+                    logger.warning(f"Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
             else:
-                # Ensure full table formatting is applied
-                self._apply_full_table_formatting(ws)
+                # Ensure table formatting is applied (first 12 columns only)
+                self._apply_table_formatting(ws)
         except Exception as e:
             logger.warning(f"Could not ensure status column: {e}")
 
@@ -382,10 +396,10 @@ class SheetsService:
             rows.append([date_str, emp])
         ws.update(f"A2:B{len(employees) + 1}", rows)
         
-        # Apply full table formatting to ALL cells
-        self._apply_full_table_formatting(ws)
+        # Apply table formatting (first 12 columns only)
+        self._apply_table_formatting(ws)
         
-        logger.info(f"✅ Created sheet '{name}' for {department} with {len(employees)} employees (full borders applied)")
+        logger.info(f"✅ Created sheet '{name}' for {department} with {len(employees)} employees (borders: A-L)")
         return ws
 
     def mark_all_as_not_sent(self, department: str, date_str: str) -> None:
@@ -410,8 +424,12 @@ class SheetsService:
         
         if status_col is None:
             status_col = len(headers) + 1
-            ws.update_cell(1, status_col, "Report Status")
-            self._apply_full_table_formatting(ws)
+            if status_col <= MAX_DATA_COLUMNS:
+                ws.update_cell(1, status_col, "Report Status")
+                self._apply_table_formatting(ws)
+            else:
+                logger.warning(f"Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
+                return
         
         all_values = self._get_cached_worksheet_data(department, date_str)
         
@@ -423,11 +441,11 @@ class SheetsService:
             if row_date == date_str:
                 has_data = False
                 for col_idx, val in enumerate(row[2:], start=3):
-                    if val and val.strip() not in ["", "0", "00:00:00"]:
+                    if col_idx <= MAX_DATA_COLUMNS and val and val.strip() not in ["", "0", "00:00:00"]:
                         has_data = True
                         break
                 
-                if not has_data:
+                if not has_data and status_col <= MAX_DATA_COLUMNS:
                     col_letter = gspread.utils.rowcol_to_a1(i, status_col).rstrip("0123456789")
                     range_str = f"{col_letter}{i}"
                     updates.append({"range": range_str, "values": [["Not Sent"]]})
@@ -436,8 +454,8 @@ class SheetsService:
         if updates:
             for update in updates:
                 ws.update(update["range"], update["values"], value_input_option="USER_ENTERED")
-            # Format the entire table after updates
-            self._apply_full_table_formatting(ws)
+            # Format the table after updates (first 12 columns only)
+            self._apply_table_formatting(ws)
             self._date_marked_not_sent.add(date_key)
             self._invalidate_cache(department, date_str)
             logger.info(f"✅ Marked {len(updates)} employees as 'Not Sent' for {date_str}")
@@ -468,8 +486,8 @@ class SheetsService:
         
         if updates:
             ws.batch_update(updates, value_input_option="USER_ENTERED")
-            # Format the entire table after adding rows
-            self._apply_full_table_formatting(ws)
+            # Format the table after adding rows (first 12 columns only)
+            self._apply_table_formatting(ws)
             self._invalidate_cache(department, date_str)
             logger.info(f"✅ Added date for {len(updates)} employees in {department}")
 
@@ -497,9 +515,13 @@ class SheetsService:
         
         if status_col is None and department == "Sales":
             status_col = len(headers) + 1
-            ws.update_cell(1, status_col, "Report Status")
-            self._apply_full_table_formatting(ws)
-            logger.info(f"Created Report Status column at column {status_col}")
+            if status_col <= MAX_DATA_COLUMNS:
+                ws.update_cell(1, status_col, "Report Status")
+                self._apply_table_formatting(ws)
+                logger.info(f"Created Report Status column at column {status_col}")
+            else:
+                logger.warning(f"Cannot create 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
+                status_col = None
         
         batch_requests = []
         ranges_to_format = []
@@ -512,10 +534,13 @@ class SheetsService:
                     continue
                 if field == "Report Status":
                     continue
+                if col > MAX_DATA_COLUMNS:
+                    # Skip columns beyond 12
+                    continue
                 val = data.get(field, 0 if field != "Duration" else "00:00:00")
                 cell_updates[col] = val
             
-            if status_col:
+            if status_col and status_col <= MAX_DATA_COLUMNS:
                 report_status = data.get("report_status", "")
                 cell_updates[status_col] = report_status
                 logger.info(f"Setting status for row {row_number} to '{report_status}'")
@@ -524,6 +549,11 @@ class SheetsService:
                 continue
             
             cols = sorted(cell_updates)
+            # Ensure we don't exceed 12 columns
+            cols = [c for c in cols if c <= MAX_DATA_COLUMNS]
+            if not cols:
+                continue
+                
             min_col, max_col = cols[0], cols[-1]
             row_values = [cell_updates.get(c, "") for c in range(min_col, max_col + 1)]
             col_start = gspread.utils.rowcol_to_a1(row_number, min_col).rstrip("0123456789")
@@ -534,10 +564,10 @@ class SheetsService:
         
         if batch_requests:
             ws.batch_update(batch_requests, value_input_option="USER_ENTERED")
-            # Format the entire table after batch writes
-            self._apply_full_table_formatting(ws)
+            # Format the table after batch writes (first 12 columns only)
+            self._apply_table_formatting(ws)
             self._invalidate_cache(department, date_str)
-            logger.info(f"✅ Batch wrote {len(batch_requests)} rows to {ws.title} (full borders applied)")
+            logger.info(f"✅ Batch wrote {len(batch_requests)} rows to {ws.title} (borders: A-L)")
 
     def mark_not_sent(self, department: str, date_str: str) -> None:
         if department != "Sales":
@@ -558,8 +588,12 @@ class SheetsService:
         
         if status_col is None:
             status_col = len(headers) + 1
-            ws.update_cell(1, status_col, "Report Status")
-            self._apply_full_table_formatting(ws)
+            if status_col <= MAX_DATA_COLUMNS:
+                ws.update_cell(1, status_col, "Report Status")
+                self._apply_table_formatting(ws)
+            else:
+                logger.warning(f"Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
+                return
         
         all_values = self._get_cached_worksheet_data(department, date_str)
         row_num = None
@@ -574,12 +608,13 @@ class SheetsService:
             logger.warning(f"Row not found for {employee_name} on {date_str}")
             return
 
-        col_letter = gspread.utils.rowcol_to_a1(row_num, status_col).rstrip("0123456789")
-        range_str = f"{col_letter}{row_num}"
-        ws.update(range_str, [["Invalid"]], value_input_option="USER_ENTERED")
-        self._apply_full_table_formatting(ws)
-        self._invalidate_cache(department, date_str)
-        logger.info(f"✅ Marked {employee_name} as 'Invalid' for {date_str}")
+        if status_col <= MAX_DATA_COLUMNS:
+            col_letter = gspread.utils.rowcol_to_a1(row_num, status_col).rstrip("0123456789")
+            range_str = f"{col_letter}{row_num}"
+            ws.update(range_str, [["Invalid"]], value_input_option="USER_ENTERED")
+            self._apply_table_formatting(ws)
+            self._invalidate_cache(department, date_str)
+            logger.info(f"✅ Marked {employee_name} as 'Invalid' for {date_str}")
 
     def mark_quota_error(self, department: str, date_str: str, employee_name: str) -> None:
         if department != "Sales":
@@ -595,8 +630,12 @@ class SheetsService:
         
         if status_col is None:
             status_col = len(headers) + 1
-            ws.update_cell(1, status_col, "Report Status")
-            self._apply_full_table_formatting(ws)
+            if status_col <= MAX_DATA_COLUMNS:
+                ws.update_cell(1, status_col, "Report Status")
+                self._apply_table_formatting(ws)
+            else:
+                logger.warning(f"Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
+                return
         
         all_values = self._get_cached_worksheet_data(department, date_str)
         row_num = None
@@ -611,12 +650,13 @@ class SheetsService:
             logger.warning(f"Row not found for {employee_name} on {date_str}")
             return
 
-        col_letter = gspread.utils.rowcol_to_a1(row_num, status_col).rstrip("0123456789")
-        range_str = f"{col_letter}{row_num}"
-        ws.update(range_str, [["Quota Error"]], value_input_option="USER_ENTERED")
-        self._apply_full_table_formatting(ws)
-        self._invalidate_cache(department, date_str)
-        logger.info(f"✅ Marked {employee_name} as 'Quota Error' for {date_str}")
+        if status_col <= MAX_DATA_COLUMNS:
+            col_letter = gspread.utils.rowcol_to_a1(row_num, status_col).rstrip("0123456789")
+            range_str = f"{col_letter}{row_num}"
+            ws.update(range_str, [["Quota Error"]], value_input_option="USER_ENTERED")
+            self._apply_table_formatting(ws)
+            self._invalidate_cache(department, date_str)
+            logger.info(f"✅ Marked {employee_name} as 'Quota Error' for {date_str}")
 
     def list_sheets(self, department: str) -> List[str]:
         return [ws.title for ws in self._spreadsheet(department).worksheets()]
