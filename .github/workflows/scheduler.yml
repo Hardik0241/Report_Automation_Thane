@@ -5,8 +5,10 @@ env:
 
 on:
   schedule:
-    - cron: '30 9-14 * * 1-5'   # Every 30 min, Mon-Fri, 3:00 PM to 8:30 PM IST
-    - cron: '30 15 * * 1-5'     # Final run at 9:00 PM IST, Mon-Fri
+    # Runs every 30 minutes from 3:00 PM to 9:00 PM IST, Monday-Friday
+    # IST 3:00 PM = UTC 09:30, IST 9:00 PM = UTC 15:30
+    - cron: '0,30 9-14 * * 1-5'   # Every 30 min: 3:00 PM to 8:30 PM IST
+    - cron: '30 15 * * 1-5'       # Final run at 9:00 PM IST (deadline)
   workflow_dispatch:
 
 jobs:
