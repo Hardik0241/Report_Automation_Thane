@@ -30,7 +30,7 @@ SALES_EMPLOYEES = [
 # EMAIL TO NAME MAPPING - SALES ONLY
 # ============================================================
 SALES_EMAIL_MAP = {
-    "Akanksha.edujam@gmail.com": "Akanksha",
+    "akanksha.edujam@gmail.com": "Akanksha",
     "nmims.ajaygupta@gmail.com": "Ajay",
     "mohit.edujam@gmail.com": "Mohit",
     "shivanisingh.edujam@gmail.com": "Shivani",
