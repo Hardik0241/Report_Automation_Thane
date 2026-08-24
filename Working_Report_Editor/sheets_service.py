@@ -10,6 +10,7 @@ UPDATED: Added timeout to prevent hanging
 UPDATED: Removed HR references (Sales only branch)
 UPDATED: Pre-populates employees with current date when creating new sheet
 UPDATED: Borders applied ONLY to first 12 columns (A to L) - the actual data table
+UPDATED: Added extensive debug logging
 """
 
 import logging
@@ -171,11 +172,14 @@ class SheetsService:
         try:
             all_values = ws.get_all_values()
             if not all_values:
+                logger.info("🔍 No values found in sheet for formatting")
                 return
             
             max_row = len(all_values)
             # Only use first 12 columns for borders (A to L)
             max_col = min(MAX_DATA_COLUMNS, max(len(row) for row in all_values) if all_values else len(SALES_HEADERS))
+            
+            logger.info(f"🔍 Formatting: max_row={max_row}, max_col={max_col}")
             
             # Ensure we have at least headers
             if max_row < 1:
@@ -228,6 +232,8 @@ class SheetsService:
             
         except Exception as e:
             logger.warning(f"Table formatting failed for {ws.title}: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _apply_formatting_to_range(self, ws: gspread.Worksheet, range_str: str = None) -> None:
         """
@@ -347,35 +353,45 @@ class SheetsService:
         if department != "Sales":
             return
         
-        ws = self._get_worksheet(department, date_str)
         try:
+            ws = self._get_worksheet(department, date_str)
             headers = ws.row_values(1)
+            logger.info(f"🔍 Current headers: {headers}")
+            
             if "Report Status" not in headers:
                 last_col = len(headers) + 1
                 # Only add if within 12 columns
                 if last_col <= MAX_DATA_COLUMNS:
                     ws.update_cell(1, last_col, "Report Status")
+                    logger.info(f"✅ Added 'Report Status' column at position {last_col}")
                     # Format the entire table after adding column
                     self._apply_table_formatting(ws)
-                    logger.info(f"Added 'Report Status' column to {ws.title}")
                 else:
-                    logger.warning(f"Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
+                    logger.warning(f"⚠️ Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
             else:
+                logger.info("✅ 'Report Status' column already exists")
                 # Ensure table formatting is applied (first 12 columns only)
                 self._apply_table_formatting(ws)
         except Exception as e:
-            logger.warning(f"Could not ensure status column: {e}")
+            logger.error(f"❌ Could not ensure status column: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _get_worksheet(self, department: str, date_str: str) -> gspread.Worksheet:
         key = (department, date_str)
         if key in self._ws_cache:
+            logger.info(f"🔍 Using cached worksheet for {department}/{date_str}")
             return self._ws_cache[key]
 
         ss = self._spreadsheet(department)
         name = self.sheet_name(date_str)
+        logger.info(f"🔍 Looking for worksheet: {name}")
+        
         try:
             ws = ss.worksheet(name)
+            logger.info(f"✅ Found existing worksheet: {name}")
         except gspread.WorksheetNotFound:
+            logger.info(f"🆕 Worksheet '{name}' not found. Creating new one...")
             ws = self._create_worksheet(ss, name, department)
 
         self._ws_cache[key] = ws
@@ -386,15 +402,22 @@ class SheetsService:
         employees = SALES_EMPLOYEES
         headers = SALES_HEADERS
         date_str = datetime.now().strftime("%d-%m-%Y")
+        
+        logger.info(f"🆕 Creating new worksheet: {name}")
+        logger.info(f"👥 Employees: {employees}")
+        logger.info(f"📋 Headers: {headers}")
+        
         ws = ss.add_worksheet(title=name, rows=str(len(employees) * 35 + 10), cols="20")
         
         ws.update("A1", [headers])
+        logger.info("✅ Headers written")
         
         # Add employees WITH the current date
         rows = []
         for emp in employees:
             rows.append([date_str, emp])
         ws.update(f"A2:B{len(employees) + 1}", rows)
+        logger.info(f"✅ Added {len(rows)} employees with date {date_str}")
         
         # Apply table formatting (first 12 columns only)
         self._apply_table_formatting(ws)
@@ -409,87 +432,117 @@ class SheetsService:
         
         date_key = f"{department}_{date_str}"
         if date_key in self._date_marked_not_sent:
+            logger.info(f"⏭️ Already marked 'Not Sent' for {department} on {date_str}")
             return
         
-        ws = self._get_worksheet(department, date_str)
+        logger.info(f"📝 Starting mark_all_as_not_sent for {department} on {date_str}")
         
-        self.ensure_status_column(department, date_str)
-        
-        headers = ws.row_values(1)
-        status_col = None
-        for i, header in enumerate(headers, start=1):
-            if header == "Report Status":
-                status_col = i
-                break
-        
-        if status_col is None:
-            status_col = len(headers) + 1
-            if status_col <= MAX_DATA_COLUMNS:
-                ws.update_cell(1, status_col, "Report Status")
+        try:
+            ws = self._get_worksheet(department, date_str)
+            
+            self.ensure_status_column(department, date_str)
+            
+            headers = ws.row_values(1)
+            status_col = None
+            for i, header in enumerate(headers, start=1):
+                if header == "Report Status":
+                    status_col = i
+                    break
+            
+            if status_col is None:
+                status_col = len(headers) + 1
+                if status_col <= MAX_DATA_COLUMNS:
+                    ws.update_cell(1, status_col, "Report Status")
+                    self._apply_table_formatting(ws)
+                    logger.info(f"✅ Created 'Report Status' column at {status_col}")
+                else:
+                    logger.warning(f"⚠️ Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
+                    return
+            
+            all_values = self._get_cached_worksheet_data(department, date_str)
+            logger.info(f"🔍 Found {len(all_values)} rows in sheet")
+            
+            updates = []
+            not_sent_count = 0
+            
+            for i, row in enumerate(all_values[1:], start=2):
+                row_date = row[0].strip() if len(row) > 0 else ""
+                if row_date == date_str:
+                    has_data = False
+                    for col_idx, val in enumerate(row[2:], start=3):
+                        if col_idx <= MAX_DATA_COLUMNS and val and val.strip() not in ["", "0", "00:00:00"]:
+                            has_data = True
+                            break
+                    
+                    if not has_data and status_col <= MAX_DATA_COLUMNS:
+                        col_letter = gspread.utils.rowcol_to_a1(i, status_col).rstrip("0123456789")
+                        range_str = f"{col_letter}{i}"
+                        updates.append({"range": range_str, "values": [["Not Sent"]]})
+                        not_sent_count += 1
+            
+            if updates:
+                logger.info(f"📝 Marking {not_sent_count} employees as 'Not Sent'")
+                for update in updates:
+                    ws.update(update["range"], update["values"], value_input_option="USER_ENTERED")
+                # Format the table after updates (first 12 columns only)
                 self._apply_table_formatting(ws)
+                self._date_marked_not_sent.add(date_key)
+                self._invalidate_cache(department, date_str)
+                logger.info(f"✅ Marked {not_sent_count} employees as 'Not Sent' for {date_str}")
             else:
-                logger.warning(f"Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
-                return
-        
-        all_values = self._get_cached_worksheet_data(department, date_str)
-        
-        updates = []
-        ranges_to_format = []
-        
-        for i, row in enumerate(all_values[1:], start=2):
-            row_date = row[0].strip() if len(row) > 0 else ""
-            if row_date == date_str:
-                has_data = False
-                for col_idx, val in enumerate(row[2:], start=3):
-                    if col_idx <= MAX_DATA_COLUMNS and val and val.strip() not in ["", "0", "00:00:00"]:
-                        has_data = True
-                        break
+                logger.info(f"ℹ️ No employees to mark as 'Not Sent' for {date_str}")
                 
-                if not has_data and status_col <= MAX_DATA_COLUMNS:
-                    col_letter = gspread.utils.rowcol_to_a1(i, status_col).rstrip("0123456789")
-                    range_str = f"{col_letter}{i}"
-                    updates.append({"range": range_str, "values": [["Not Sent"]]})
-                    ranges_to_format.append(range_str)
-        
-        if updates:
-            for update in updates:
-                ws.update(update["range"], update["values"], value_input_option="USER_ENTERED")
-            # Format the table after updates (first 12 columns only)
-            self._apply_table_formatting(ws)
-            self._date_marked_not_sent.add(date_key)
-            self._invalidate_cache(department, date_str)
-            logger.info(f"✅ Marked {len(updates)} employees as 'Not Sent' for {date_str}")
+        except Exception as e:
+            logger.error(f"❌ Failed to mark 'Not Sent' for {department} on {date_str}: {e}")
+            import traceback
+            traceback.print_exc()
 
     @with_retry()
     def ensure_date_for_all_employees(self, department: str, date_str: str) -> None:
         """Add date rows for employees who don't have a row with that date"""
+        logger.info(f"📝 ensure_date_for_all_employees: {department} on {date_str}")
+        
         employees = SALES_EMPLOYEES
-        ws = self._get_worksheet(department, date_str)
+        logger.info(f"👥 Employees to check: {employees}")
         
-        all_values = self._get_cached_worksheet_data(department, date_str)
-        
-        has_date = set()
-        for row in all_values[1:]:
-            if row and row[0].strip() == date_str:
-                name = row[1].strip() if len(row) > 1 else ""
-                if name:
-                    has_date.add(name)
-        
-        updates = []
-        ranges_to_format = []
-        for emp in employees:
-            if emp not in has_date:
+        try:
+            ws = self._get_worksheet(department, date_str)
+            
+            all_values = self._get_cached_worksheet_data(department, date_str)
+            logger.info(f"🔍 Found {len(all_values)} rows in sheet")
+            
+            has_date = set()
+            for row in all_values[1:]:
+                if row and row[0].strip() == date_str:
+                    name = row[1].strip() if len(row) > 1 else ""
+                    if name:
+                        has_date.add(name)
+            
+            logger.info(f"🔍 Employees already have date {date_str}: {has_date}")
+            
+            missing_employees = [emp for emp in employees if emp not in has_date]
+            logger.info(f"🔍 Missing employees: {missing_employees}")
+            
+            updates = []
+            for emp in missing_employees:
                 row_num = len(all_values) + 1 + len(updates)
                 range_str = f"A{row_num}:B{row_num}"
                 updates.append({"range": range_str, "values": [[date_str, emp]]})
-                ranges_to_format.append(range_str)
-        
-        if updates:
-            ws.batch_update(updates, value_input_option="USER_ENTERED")
-            # Format the table after adding rows (first 12 columns only)
-            self._apply_table_formatting(ws)
-            self._invalidate_cache(department, date_str)
-            logger.info(f"✅ Added date for {len(updates)} employees in {department}")
+            
+            if updates:
+                logger.info(f"📝 Adding {len(updates)} missing employees")
+                ws.batch_update(updates, value_input_option="USER_ENTERED")
+                # Format the table after adding rows (first 12 columns only)
+                self._apply_table_formatting(ws)
+                self._invalidate_cache(department, date_str)
+                logger.info(f"✅ Added date for {len(updates)} employees in {department}")
+            else:
+                logger.info(f"ℹ️ All employees already have rows for {date_str}")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to ensure employees for {department} on {date_str}: {e}")
+            import traceback
+            traceback.print_exc()
 
     @with_retry()
     def find_employee_row(self, department: str, date_str: str, employee_name: str) -> Optional[int]:
@@ -503,71 +556,82 @@ class SheetsService:
     def write_batch(self, department: str, date_str: str, updates: List[Tuple[int, Dict]]) -> None:
         if not updates:
             return
-        ws = self._get_worksheet(department, date_str)
-        mapping = SALES_COLUMN_MAPPING
         
-        headers = ws.row_values(1)
-        status_col = None
-        for i, header in enumerate(headers, start=1):
-            if header == "Report Status":
-                status_col = i
-                break
+        logger.info(f"📝 write_batch: {department} on {date_str} - {len(updates)} entries")
         
-        if status_col is None and department == "Sales":
-            status_col = len(headers) + 1
-            if status_col <= MAX_DATA_COLUMNS:
-                ws.update_cell(1, status_col, "Report Status")
-                self._apply_table_formatting(ws)
-                logger.info(f"Created Report Status column at column {status_col}")
-            else:
-                logger.warning(f"Cannot create 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
-                status_col = None
-        
-        batch_requests = []
-        ranges_to_format = []
-        
-        for row_number, data in updates:
-            cell_updates = {}
+        try:
+            ws = self._get_worksheet(department, date_str)
+            mapping = SALES_COLUMN_MAPPING
             
-            for field, col in mapping.items():
-                if field in ("Date", "Employee Name"):
-                    continue
-                if field == "Report Status":
-                    continue
-                if col > MAX_DATA_COLUMNS:
-                    # Skip columns beyond 12
-                    continue
-                val = data.get(field, 0 if field != "Duration" else "00:00:00")
-                cell_updates[col] = val
+            headers = ws.row_values(1)
+            status_col = None
+            for i, header in enumerate(headers, start=1):
+                if header == "Report Status":
+                    status_col = i
+                    break
             
-            if status_col and status_col <= MAX_DATA_COLUMNS:
-                report_status = data.get("report_status", "")
-                cell_updates[status_col] = report_status
-                logger.info(f"Setting status for row {row_number} to '{report_status}'")
+            if status_col is None and department == "Sales":
+                status_col = len(headers) + 1
+                if status_col <= MAX_DATA_COLUMNS:
+                    ws.update_cell(1, status_col, "Report Status")
+                    self._apply_table_formatting(ws)
+                    logger.info(f"Created Report Status column at column {status_col}")
+                else:
+                    logger.warning(f"⚠️ Cannot create 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
+                    status_col = None
             
-            if not cell_updates:
-                continue
+            batch_requests = []
             
-            cols = sorted(cell_updates)
-            # Ensure we don't exceed 12 columns
-            cols = [c for c in cols if c <= MAX_DATA_COLUMNS]
-            if not cols:
-                continue
+            for row_number, data in updates:
+                logger.info(f"🔍 Writing row {row_number}: {data}")
+                cell_updates = {}
                 
-            min_col, max_col = cols[0], cols[-1]
-            row_values = [cell_updates.get(c, "") for c in range(min_col, max_col + 1)]
-            col_start = gspread.utils.rowcol_to_a1(row_number, min_col).rstrip("0123456789")
-            col_end = gspread.utils.rowcol_to_a1(row_number, max_col).rstrip("0123456789")
-            range_str = f"{col_start}{row_number}:{col_end}{row_number}"
-            batch_requests.append({"range": range_str, "values": [row_values]})
-            ranges_to_format.append(range_str)
-        
-        if batch_requests:
-            ws.batch_update(batch_requests, value_input_option="USER_ENTERED")
-            # Format the table after batch writes (first 12 columns only)
-            self._apply_table_formatting(ws)
-            self._invalidate_cache(department, date_str)
-            logger.info(f"✅ Batch wrote {len(batch_requests)} rows to {ws.title} (borders: A-L)")
+                for field, col in mapping.items():
+                    if field in ("Date", "Employee Name"):
+                        continue
+                    if field == "Report Status":
+                        continue
+                    if col > MAX_DATA_COLUMNS:
+                        # Skip columns beyond 12
+                        continue
+                    val = data.get(field, 0 if field != "Duration" else "00:00:00")
+                    cell_updates[col] = val
+                
+                if status_col and status_col <= MAX_DATA_COLUMNS:
+                    report_status = data.get("report_status", "")
+                    cell_updates[status_col] = report_status
+                    logger.info(f"🔍 Setting status for row {row_number} to '{report_status}'")
+                
+                if not cell_updates:
+                    continue
+                
+                cols = sorted(cell_updates)
+                # Ensure we don't exceed 12 columns
+                cols = [c for c in cols if c <= MAX_DATA_COLUMNS]
+                if not cols:
+                    continue
+                    
+                min_col, max_col = cols[0], cols[-1]
+                row_values = [cell_updates.get(c, "") for c in range(min_col, max_col + 1)]
+                col_start = gspread.utils.rowcol_to_a1(row_number, min_col).rstrip("0123456789")
+                col_end = gspread.utils.rowcol_to_a1(row_number, max_col).rstrip("0123456789")
+                range_str = f"{col_start}{row_number}:{col_end}{row_number}"
+                batch_requests.append({"range": range_str, "values": [row_values]})
+            
+            if batch_requests:
+                logger.info(f"📝 Writing {len(batch_requests)} batch requests")
+                ws.batch_update(batch_requests, value_input_option="USER_ENTERED")
+                # Format the table after batch writes (first 12 columns only)
+                self._apply_table_formatting(ws)
+                self._invalidate_cache(department, date_str)
+                logger.info(f"✅ Batch wrote {len(batch_requests)} rows to {ws.title} (borders: A-L)")
+            else:
+                logger.info("ℹ️ No batch requests to write")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to write batch: {e}")
+            import traceback
+            traceback.print_exc()
 
     def mark_not_sent(self, department: str, date_str: str) -> None:
         if department != "Sales":
@@ -577,86 +641,100 @@ class SheetsService:
     def mark_invalid_report(self, department: str, date_str: str, employee_name: str) -> None:
         if department != "Sales":
             return
-        ws = self._get_worksheet(department, date_str)
         
-        headers = ws.row_values(1)
-        status_col = None
-        for i, header in enumerate(headers, start=1):
-            if header == "Report Status":
-                status_col = i
-                break
-        
-        if status_col is None:
-            status_col = len(headers) + 1
-            if status_col <= MAX_DATA_COLUMNS:
-                ws.update_cell(1, status_col, "Report Status")
-                self._apply_table_formatting(ws)
-            else:
-                logger.warning(f"Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
+        try:
+            ws = self._get_worksheet(department, date_str)
+            
+            headers = ws.row_values(1)
+            status_col = None
+            for i, header in enumerate(headers, start=1):
+                if header == "Report Status":
+                    status_col = i
+                    break
+            
+            if status_col is None:
+                status_col = len(headers) + 1
+                if status_col <= MAX_DATA_COLUMNS:
+                    ws.update_cell(1, status_col, "Report Status")
+                    self._apply_table_formatting(ws)
+                else:
+                    logger.warning(f"⚠️ Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
+                    return
+            
+            all_values = self._get_cached_worksheet_data(department, date_str)
+            row_num = None
+            for i, row in enumerate(all_values[1:], start=2):
+                row_date = row[0].strip() if len(row) > 0 else ""
+                row_name = row[1].strip() if len(row) > 1 else ""
+                if row_date == date_str and row_name.lower() == employee_name.lower():
+                    row_num = i
+                    break
+
+            if not row_num:
+                logger.warning(f"Row not found for {employee_name} on {date_str}")
                 return
-        
-        all_values = self._get_cached_worksheet_data(department, date_str)
-        row_num = None
-        for i, row in enumerate(all_values[1:], start=2):
-            row_date = row[0].strip() if len(row) > 0 else ""
-            row_name = row[1].strip() if len(row) > 1 else ""
-            if row_date == date_str and row_name.lower() == employee_name.lower():
-                row_num = i
-                break
 
-        if not row_num:
-            logger.warning(f"Row not found for {employee_name} on {date_str}")
-            return
-
-        if status_col <= MAX_DATA_COLUMNS:
-            col_letter = gspread.utils.rowcol_to_a1(row_num, status_col).rstrip("0123456789")
-            range_str = f"{col_letter}{row_num}"
-            ws.update(range_str, [["Invalid"]], value_input_option="USER_ENTERED")
-            self._apply_table_formatting(ws)
-            self._invalidate_cache(department, date_str)
-            logger.info(f"✅ Marked {employee_name} as 'Invalid' for {date_str}")
+            if status_col <= MAX_DATA_COLUMNS:
+                col_letter = gspread.utils.rowcol_to_a1(row_num, status_col).rstrip("0123456789")
+                range_str = f"{col_letter}{row_num}"
+                ws.update(range_str, [["Invalid"]], value_input_option="USER_ENTERED")
+                self._apply_table_formatting(ws)
+                self._invalidate_cache(department, date_str)
+                logger.info(f"✅ Marked {employee_name} as 'Invalid' for {date_str}")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to mark invalid: {e}")
+            import traceback
+            traceback.print_exc()
 
     def mark_quota_error(self, department: str, date_str: str, employee_name: str) -> None:
         if department != "Sales":
             return
-        ws = self._get_worksheet(department, date_str)
         
-        headers = ws.row_values(1)
-        status_col = None
-        for i, header in enumerate(headers, start=1):
-            if header == "Report Status":
-                status_col = i
-                break
-        
-        if status_col is None:
-            status_col = len(headers) + 1
-            if status_col <= MAX_DATA_COLUMNS:
-                ws.update_cell(1, status_col, "Report Status")
-                self._apply_table_formatting(ws)
-            else:
-                logger.warning(f"Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
+        try:
+            ws = self._get_worksheet(department, date_str)
+            
+            headers = ws.row_values(1)
+            status_col = None
+            for i, header in enumerate(headers, start=1):
+                if header == "Report Status":
+                    status_col = i
+                    break
+            
+            if status_col is None:
+                status_col = len(headers) + 1
+                if status_col <= MAX_DATA_COLUMNS:
+                    ws.update_cell(1, status_col, "Report Status")
+                    self._apply_table_formatting(ws)
+                else:
+                    logger.warning(f"⚠️ Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
+                    return
+            
+            all_values = self._get_cached_worksheet_data(department, date_str)
+            row_num = None
+            for i, row in enumerate(all_values[1:], start=2):
+                row_date = row[0].strip() if len(row) > 0 else ""
+                row_name = row[1].strip() if len(row) > 1 else ""
+                if row_date == date_str and row_name.lower() == employee_name.lower():
+                    row_num = i
+                    break
+
+            if not row_num:
+                logger.warning(f"Row not found for {employee_name} on {date_str}")
                 return
-        
-        all_values = self._get_cached_worksheet_data(department, date_str)
-        row_num = None
-        for i, row in enumerate(all_values[1:], start=2):
-            row_date = row[0].strip() if len(row) > 0 else ""
-            row_name = row[1].strip() if len(row) > 1 else ""
-            if row_date == date_str and row_name.lower() == employee_name.lower():
-                row_num = i
-                break
 
-        if not row_num:
-            logger.warning(f"Row not found for {employee_name} on {date_str}")
-            return
-
-        if status_col <= MAX_DATA_COLUMNS:
-            col_letter = gspread.utils.rowcol_to_a1(row_num, status_col).rstrip("0123456789")
-            range_str = f"{col_letter}{row_num}"
-            ws.update(range_str, [["Quota Error"]], value_input_option="USER_ENTERED")
-            self._apply_table_formatting(ws)
-            self._invalidate_cache(department, date_str)
-            logger.info(f"✅ Marked {employee_name} as 'Quota Error' for {date_str}")
+            if status_col <= MAX_DATA_COLUMNS:
+                col_letter = gspread.utils.rowcol_to_a1(row_num, status_col).rstrip("0123456789")
+                range_str = f"{col_letter}{row_num}"
+                ws.update(range_str, [["Quota Error"]], value_input_option="USER_ENTERED")
+                self._apply_table_formatting(ws)
+                self._invalidate_cache(department, date_str)
+                logger.info(f"✅ Marked {employee_name} as 'Quota Error' for {date_str}")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to mark quota error: {e}")
+            import traceback
+            traceback.print_exc()
 
     def list_sheets(self, department: str) -> List[str]:
         return [ws.title for ws in self._spreadsheet(department).worksheets()]
