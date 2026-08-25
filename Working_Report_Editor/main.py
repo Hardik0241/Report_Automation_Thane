@@ -10,6 +10,7 @@ UPDATED: Added graceful error handling for Sheets connection failures
 UPDATED: Removed HR references (Sales only branch)
 UPDATED: Added pre-marking of "Not Sent" BEFORE processing emails to ensure all employees get marked even if no emails received
 UPDATED: Added FORCE_DATE environment variable to allow processing emails from a specific past date
+UPDATED: Process ONLY today's emails by default (FORCE_DATE only overrides for manual runs)
 """
 
 import logging
@@ -210,11 +211,13 @@ class ReportProcessor:
                 else:
                     logger.info(f"✅ Email date {date_str} matches FORCE_DATE. Processing...")
             else:
-                # Normal behavior: only process today's emails
+                # ✅ DEFAULT: ONLY process today's emails
                 if not self._is_today_date(date_str):
                     logger.info(f"⏭️ Skipping email from {date_str} (not today) - will remain unread")
                     self.tracker.mark_processed(email_hash)
                     return {"status": "SKIPPED_OLD_DATE", "reason": f"Email date {date_str} is not today"}
+                else:
+                    logger.info(f"✅ Email date {date_str} is today. Processing...")
 
             # ============================================================
             # END OF DATE FILTER
