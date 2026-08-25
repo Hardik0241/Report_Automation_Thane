@@ -9,12 +9,13 @@ UPDATED: Added logic to mark Sales employees as "Not Sent" if they submit after 
 UPDATED: Added graceful error handling for Sheets connection failures
 UPDATED: Removed HR references (Sales only branch)
 UPDATED: Added pre-marking of "Not Sent" BEFORE processing emails to ensure all employees get marked even if no emails received
-UPDATED: Added extensive debug logging to identify issues
+UPDATED: Added FORCE_DATE environment variable to allow processing emails from a specific past date
 """
 
 import logging
 import time
 import sys
+import os
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -194,13 +195,33 @@ class ReportProcessor:
             date_str = received_timestamp_to_date(received_ms) if received_ms else received_at.strftime("%d-%m-%Y")
             logger.info(f"📅 Email date: {date_str}, Today: {datetime.now().strftime('%d-%m-%Y')}")
 
+            # ============================================================
+            # 🔥 Date filter logic with FORCE_DATE override
+            # ============================================================
+            force_date = os.environ.get("FORCE_DATE", "").strip()
+            
+            if force_date:
+                # If FORCE_DATE is set, only process emails matching that exact date
+                logger.info(f"🔧 FORCE_DATE is set to: {force_date}")
+                if date_str != force_date:
+                    logger.info(f"⏭️ Skipping email from {date_str} (FORCE_DATE={force_date})")
+                    self.tracker.mark_processed(email_hash)
+                    return {"status": "SKIPPED_OLD_DATE", "reason": f"Date {date_str} != FORCE_DATE"}
+                else:
+                    logger.info(f"✅ Email date {date_str} matches FORCE_DATE. Processing...")
+            else:
+                # Normal behavior: only process today's emails
+                if not self._is_today_date(date_str):
+                    logger.info(f"⏭️ Skipping email from {date_str} (not today) - will remain unread")
+                    self.tracker.mark_processed(email_hash)
+                    return {"status": "SKIPPED_OLD_DATE", "reason": f"Email date {date_str} is not today"}
+
+            # ============================================================
+            # END OF DATE FILTER
+            # ============================================================
+
             # Mark "Not Sent" for all employees on this date
             self._mark_all_as_not_sent_for_date(dept, date_str)
-
-            if not self._is_today_date(date_str):
-                logger.info(f"⏭️ Skipping email from {date_str} (not today's date) - will remain unread")
-                self.tracker.mark_processed(email_hash)
-                return {"status": "SKIPPED_OLD_DATE", "reason": f"Email date {date_str} is not today"}
 
             if self._check_already_in_sheet(dept, canonical_name, date_str):
                 logger.info(f"✅ Employee {canonical_name} already has data in sheet for {date_str} → skipping")
@@ -273,14 +294,21 @@ class ReportProcessor:
         logger.info("=" * 60)
         logger.info("🚀 Report Processor started")
         
-        today_date = datetime.now().strftime("%d-%m-%Y")
+        # Determine which date to process (today or FORCE_DATE)
+        force_date = os.environ.get("FORCE_DATE", "").strip()
+        if force_date:
+            today_date = force_date
+            logger.info(f"🔧 FORCE_DATE override: Processing emails for {force_date}")
+        else:
+            today_date = datetime.now().strftime("%d-%m-%Y")
+            logger.info(f"📅 Today's date: {today_date}")
+        
         dept = "Sales"
         
-        logger.info(f"📅 Today's date: {today_date}")
         logger.info(f"👥 Expected employees: {len(SALES_EMPLOYEES)}")
         logger.info(f"📧 Employee emails: {list(SALES_EMAIL_MAP.keys())}")
 
-        # ✅ STEP 1: PRE-MARK all employees as "Not Sent" for today
+        # ✅ STEP 1: PRE-MARK all employees as "Not Sent" for the target date
         try:
             logger.info(f"📝 Pre-marking all {dept} employees as 'Not Sent' for {today_date}")
             
