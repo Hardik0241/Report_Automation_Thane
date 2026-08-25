@@ -5,11 +5,23 @@ env:
 
 on:
   schedule:
-    # Runs every 30 minutes from 3:00 PM to 9:00 PM IST, Monday-Friday
-    # IST 3:00 PM = UTC 09:30, IST 9:00 PM = UTC 15:30
-    - cron: '0,30 9-14 * * 1-5'   # Every 30 min: 3:00 PM to 8:30 PM IST
-    - cron: '30 15 * * 1-5'       # Final run at 9:00 PM IST (deadline)
+    # Runs at 0 and 30 minutes past each hour from 3:00 PM to 8:30 PM IST (Mon-Fri)
+    # IST 3:00 PM = UTC 09:30, IST 8:30 PM = UTC 15:00
+    # Hours 9-14 UTC cover: 3:00 PM to 8:30 PM IST
+    - cron: '0,30 9-14 * * 1-5'
+    
+    # Final run at 9:00 PM IST (deadline)
+    # IST 9:00 PM = UTC 15:30
+    - cron: '30 15 * * 1-5'
+
   workflow_dispatch:
+    # Allow manual trigger with optional date input
+    inputs:
+      force_date:
+        description: 'Process emails for a specific date (dd-mm-yyyy). Leave empty for today.'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   run-processor:
@@ -69,3 +81,5 @@ jobs:
           THANE_CLIENT_ID: ${{ secrets.THANE_CLIENT_ID }}
           THANE_CLIENT_SECRET: ${{ secrets.THANE_CLIENT_SECRET }}
           THANE_REFRESH_TOKEN: ${{ secrets.THANE_REFRESH_TOKEN }}
+          # Pass the manual input (if set) as FORCE_DATE
+          FORCE_DATE: ${{ github.event.inputs.force_date }}
