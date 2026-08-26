@@ -14,6 +14,7 @@ UPDATED: Added support for "secs" plural (e.g., 18 secs)
 UPDATED: Added support for "mins" plural (e.g., 13 mins)
 UPDATED: Added support for "hr" singular (e.g., 1 hr 14m 18 secs)
 UPDATED: Improved addition pattern parsing for "1 hr 14m 18 secs + 13 mins + 6 mins"
+UPDATED: Added support for uppercase H, M, S with and without spaces (e.g., 1H 40M 17S, 1H40M17S)
 """
 
 import re
@@ -94,6 +95,8 @@ def parse_duration(raw: str) -> str:
     - "58:14" → 00:58:14 (MM:SS format)
     - "1H 1M + 20 M, Also add 10 min" → 01:31:00
     - "1 hr 14m 18 secs + 13 mins + 6 mins" → 01:33:18
+    - "1H 40M 17S" → 01:40:17 (uppercase with spaces)
+    - "1H40M17S" → 01:40:17 (uppercase without spaces)
     """
     if not raw:
         return "00:00:00"
@@ -144,6 +147,18 @@ def parse_duration(raw: str) -> str:
         m, s = int(match.group(1)), int(match.group(2))
         return f"00:{m:02d}:{s:02d}"
     
+    # Handle uppercase format: "1H 40M 17S" (spaces between parts, uppercase letters)
+    match = re.search(r'(\d+)\s*[Hh](?:[Rr])?\s*(\d+)\s*[Mm]\s*(\d+)\s*[Ss]', raw, re.IGNORECASE)
+    if match:
+        h, m, s = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    
+    # Handle uppercase format without spaces: "1H40M17S"
+    match = re.search(r'(\d+)[Hh](?:[Rr])?(\d+)[Mm](\d+)[Ss]', raw, re.IGNORECASE)
+    if match:
+        h, m, s = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    
     # Handle "1hr 9min 47sec" format (full words with spaces)
     match = re.search(r'(\d+)\s*hr\s*(\d+)\s*min\s*(\d+)\s*sec', raw, re.IGNORECASE)
     if match:
@@ -177,6 +192,20 @@ def _duration_to_seconds(duration_str: str) -> int:
     
     # Remove any text in parentheses or after keywords
     duration_str = re.sub(r'\s+(?:on|from|another|whatsapp|other|phone|personal|prsnl).*$', '', duration_str, flags=re.IGNORECASE)
+    
+    # Handle uppercase format: "1H 40M 17S" (spaces between parts)
+    match = re.search(r'(\d+)\s*[hH](?:[rR])?\s*(\d+)\s*[mM]\s*(\d+)\s*[sS]', duration_str, re.IGNORECASE)
+    if match:
+        h, m, s = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        total_seconds += h * 3600 + m * 60 + s
+        return total_seconds
+    
+    # Handle uppercase format without spaces: "1H40M17S"
+    match = re.search(r'(\d+)[hH](?:[rR])?(\d+)[mM](\d+)[sS]', duration_str, re.IGNORECASE)
+    if match:
+        h, m, s = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        total_seconds += h * 3600 + m * 60 + s
+        return total_seconds
     
     # Handle "1hr 9min 47sec" format (full words with spaces)
     match = re.search(r'(\d+)\s*hr\s*(\d+)\s*min\s*(\d+)\s*sec', duration_str, re.IGNORECASE)
