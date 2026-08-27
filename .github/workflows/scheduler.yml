@@ -18,10 +18,11 @@ on:
     # Allow manual trigger with optional date input
     inputs:
       force_date:
-        description: 'Process emails for a specific date (dd-mm-yyyy). Leave empty for today.'
+        description: 'Enter date (dd-mm-yyyy) to process emails from that specific date. Leave empty for today.'
         required: false
         type: string
         default: ''
+        placeholder: 'e.g., 26-08-2026'
 
 jobs:
   run-processor:
