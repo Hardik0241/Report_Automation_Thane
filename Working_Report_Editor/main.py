@@ -9,8 +9,7 @@ UPDATED: Added logic to mark Sales employees as "Not Sent" if they submit after 
 UPDATED: Added graceful error handling for Sheets connection failures
 UPDATED: Removed HR references (Sales only branch)
 UPDATED: Added pre-marking of "Not Sent" BEFORE processing emails to ensure all employees get marked even if no emails received
-UPDATED: Added FORCE_DATE environment variable to allow processing emails from a specific past date
-UPDATED: Process ONLY today's emails by default (FORCE_DATE only overrides for manual runs)
+UPDATED: Process ONLY today's emails by default
 """
 
 import logging
@@ -197,27 +196,14 @@ class ReportProcessor:
             logger.info(f"📅 Email date: {date_str}, Today: {datetime.now().strftime('%d-%m-%Y')}")
 
             # ============================================================
-            # 🔥 Date filter logic with FORCE_DATE override
+            # ✅ DEFAULT: ONLY process today's emails
             # ============================================================
-            force_date = os.environ.get("FORCE_DATE", "").strip()
-            
-            if force_date:
-                # If FORCE_DATE is set, only process emails matching that exact date
-                logger.info(f"🔧 FORCE_DATE is set to: {force_date}")
-                if date_str != force_date:
-                    logger.info(f"⏭️ Skipping email from {date_str} (FORCE_DATE={force_date})")
-                    self.tracker.mark_processed(email_hash)
-                    return {"status": "SKIPPED_OLD_DATE", "reason": f"Date {date_str} != FORCE_DATE"}
-                else:
-                    logger.info(f"✅ Email date {date_str} matches FORCE_DATE. Processing...")
+            if not self._is_today_date(date_str):
+                logger.info(f"⏭️ Skipping email from {date_str} (not today) - will remain unread")
+                self.tracker.mark_processed(email_hash)
+                return {"status": "SKIPPED_OLD_DATE", "reason": f"Email date {date_str} is not today"}
             else:
-                # ✅ DEFAULT: ONLY process today's emails
-                if not self._is_today_date(date_str):
-                    logger.info(f"⏭️ Skipping email from {date_str} (not today) - will remain unread")
-                    self.tracker.mark_processed(email_hash)
-                    return {"status": "SKIPPED_OLD_DATE", "reason": f"Email date {date_str} is not today"}
-                else:
-                    logger.info(f"✅ Email date {date_str} is today. Processing...")
+                logger.info(f"✅ Email date {date_str} is today. Processing...")
 
             # ============================================================
             # END OF DATE FILTER
@@ -297,21 +283,16 @@ class ReportProcessor:
         logger.info("=" * 60)
         logger.info("🚀 Report Processor started")
         
-        # Determine which date to process (today or FORCE_DATE)
-        force_date = os.environ.get("FORCE_DATE", "").strip()
-        if force_date:
-            today_date = force_date
-            logger.info(f"🔧 FORCE_DATE override: Processing emails for {force_date}")
-        else:
-            today_date = datetime.now().strftime("%d-%m-%Y")
-            logger.info(f"📅 Today's date: {today_date}")
+        # Only process today's emails
+        today_date = datetime.now().strftime("%d-%m-%Y")
+        logger.info(f"📅 Today's date: {today_date}")
         
         dept = "Sales"
         
         logger.info(f"👥 Expected employees: {len(SALES_EMPLOYEES)}")
         logger.info(f"📧 Employee emails: {list(SALES_EMAIL_MAP.keys())}")
 
-        # ✅ STEP 1: PRE-MARK all employees as "Not Sent" for the target date
+        # ✅ STEP 1: PRE-MARK all employees as "Not Sent" for today
         try:
             logger.info(f"📝 Pre-marking all {dept} employees as 'Not Sent' for {today_date}")
             
