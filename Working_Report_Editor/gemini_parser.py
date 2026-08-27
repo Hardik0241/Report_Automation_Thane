@@ -20,6 +20,8 @@ UPDATED: Added support for "mins" plural (e.g., 13 mins)
 UPDATED: Added support for "hr" with space (e.g., 1 hr 14m 18 secs)
 UPDATED: Added support for "hr" + "min" with spaces (e.g., 1hr 38 min 39s)
 UPDATED: Added support for "min" with spaces around it (e.g., 38 min)
+UPDATED: Added support for "min" without spaces (e.g., 17min, 23s) - handles 1hr 17min 23s format
+UPDATED: Added support for "+" and "=" pattern (e.g., 1hr 17min 23s + 26min 48s = 1hr 44min 11s)
 """
 
 import json
@@ -67,7 +69,7 @@ Rules:
 - Use 0 for missing integer fields.
 - Use "00:00:00" for missing duration.
 - If the email contains "Leave" or "leave" anywhere, mark as "Leave" and skip.
-- Duration can be in formats: "1h 0m 35s", "1H 15M + 14M", "1 H 31 M", "1hr 25m 21s", "01:28:52", "02.07.36", "2.08.32", "1h 42m 8sec", "1hr 14m 21s", "1hr 25min 46s", "49 MINS 9 SEC", "1hr 9min 47sec", "58:14", "1 hr 14m 18 secs + 13 mins + 6 mins", "1hr 38 min 39s"
+- Duration can be in formats: "1h 0m 35s", "1H 15M + 14M", "1 H 31 M", "1hr 25m 21s", "01:28:52", "02.07.36", "2.08.32", "1h 42m 8sec", "1hr 14m 21s", "1hr 25min 46s", "49 MINS 9 SEC", "1hr 9min 47sec", "58:14", "1 hr 14m 18 secs + 13 mins + 6 mins", "1hr 38 min 39s", "1hr 17min 23s + 26min 48s = 1hr 44min 11s"
 
 Email content:
 """
@@ -246,6 +248,12 @@ class GeminiParser:
                 if match:
                     return match.group(1).strip()
 
+                # Handle "1hr 17min 23s + 26min 48s = 1hr 44min 11s" format - extract final duration after "="
+                pattern_with_equal = rf"(?i){kw_esc}[\s]*[:=-][\s]*.*?=\s*(\d+\s*hr\s*\d+min\s*\d+s)"
+                match = re.search(pattern_with_equal, text)
+                if match:
+                    return match.group(1).strip()
+
                 # Handle text format with "hr" and "min" (e.g., 1hr 25min 46s)
                 pattern_text_hr_min = rf"(?i){kw_esc}[\s]*[:=-][\s]*(\d+\s*hr\s*\d+\s*min\s*\d+\s*s)"
                 match = re.search(pattern_text_hr_min, text)
@@ -299,7 +307,7 @@ class GeminiParser:
         ])
 
         duration = grab_duration([
-            "duration", "dur", "talk time", "time"
+            "duration", "dur", "talk time", "time", "total duration"
         ])
         if duration and duration != "00:00:00" and ':' not in duration and '.' not in duration:
             duration = parse_duration(duration)
@@ -413,6 +421,12 @@ class GeminiParser:
 
         # Handle "1hr 38min 39s" format (no space between number and min)
         match = re.search(r'(\d+)\s*hr\s*(\d+)min\s*(\d+)\s*s', text, re.IGNORECASE)
+        if match:
+            h, m, s = int(match.group(1)), int(match.group(2)), int(match.group(3))
+            return f"{h:02d}:{m:02d}:{s:02d}"
+
+        # Handle "1hr 17min 23s" format (no space between number and min)
+        match = re.search(r'(\d+)\s*hr\s*(\d+)min\s*(\d+)s', text, re.IGNORECASE)
         if match:
             h, m, s = int(match.group(1)), int(match.group(2)), int(match.group(3))
             return f"{h:02d}:{m:02d}:{s:02d}"
