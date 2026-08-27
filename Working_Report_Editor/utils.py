@@ -15,7 +15,7 @@ UPDATED: Added support for "mins" plural (e.g., 13 mins)
 UPDATED: Added support for "hr" singular (e.g., 1 hr 14m 18 secs)
 UPDATED: Improved addition pattern parsing for "1 hr 14m 18 secs + 13 mins + 6 mins"
 UPDATED: Added support for uppercase H, M, S with and without spaces (e.g., 1H 40M 17S, 1H40M17S)
-UPDATED: Fixed handling of ":-" separator with spaces (e.g., Duration :-  2h  12m 30sec)
+UPDATED: Fixed handling of ":-" separator with spaces
 UPDATED: Improved regex patterns to handle multiple spaces between duration components
 """
 
@@ -101,6 +101,7 @@ def parse_duration(raw: str) -> str:
     - "1H40M17S" → 01:40:17 (uppercase without spaces)
     - "2h  12m 30sec" → 02:12:30 (multiple spaces)
     - "Duration :-  2h  12m 30sec" → 02:12:30 (:- separator with spaces)
+    - "1hr 38 min 39s" → 01:38:39 (hr with space, min with space)
     """
     if not raw:
         return "00:00:00"
@@ -111,7 +112,6 @@ def parse_duration(raw: str) -> str:
         return "00:00:00"
     
     # First, clean the string by removing common prefixes like "Duration :- "
-    # This helps extract just the duration part
     clean_raw = re.sub(r'^(duration|dur|talk time|time)\s*[:=-]+\s*', '', raw, flags=re.IGNORECASE)
     
     # Handle HH:MM:SS format with colons (exactly 2 digits each)
@@ -167,6 +167,12 @@ def parse_duration(raw: str) -> str:
         h, m, s = int(match.group(1)), int(match.group(2)), int(match.group(3))
         return f"{h:02d}:{m:02d}:{s:02d}"
     
+    # Handle "1hr 38 min 39s" format (hr with space, min with space)
+    match = re.search(r'(\d+)\s*hr\s*(\d+)\s*min\s*(\d+)\s*s', clean_raw, re.IGNORECASE)
+    if match:
+        h, m, s = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    
     # Handle "1hr 9min 47sec" format (full words with spaces)
     match = re.search(r'(\d+)\s*hr\s*(\d+)\s*min\s*(\d+)\s*sec', clean_raw, re.IGNORECASE)
     if match:
@@ -180,7 +186,6 @@ def parse_duration(raw: str) -> str:
         return f"{h:02d}:{m:02d}:{s:02d}"
     
     # Handle "2h  12m 30sec" format (multiple spaces between components)
-    # This pattern handles ANY number of spaces between h, m, sec components
     match = re.search(r'(\d+)\s*h(?:r)?s?\s+(\d+)\s*m(?:in)?s?\s+(\d+)\s*sec', clean_raw, re.IGNORECASE)
     if match:
         h, m, s = int(match.group(1)), int(match.group(2)), int(match.group(3))
@@ -220,6 +225,13 @@ def _duration_to_seconds(duration_str: str) -> int:
     
     # Handle uppercase format without spaces: "1H40M17S"
     match = re.search(r'(\d+)[hH](?:[rR])?(\d+)[mM](\d+)[sS]', duration_str, re.IGNORECASE)
+    if match:
+        h, m, s = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        total_seconds += h * 3600 + m * 60 + s
+        return total_seconds
+    
+    # Handle "1hr 38 min 39s" format (hr with space, min with space)
+    match = re.search(r'(\d+)\s*hr\s*(\d+)\s*min\s*(\d+)\s*s', duration_str, re.IGNORECASE)
     if match:
         h, m, s = int(match.group(1)), int(match.group(2)), int(match.group(3))
         total_seconds += h * 3600 + m * 60 + s
