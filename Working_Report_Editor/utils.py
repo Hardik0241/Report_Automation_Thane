@@ -20,6 +20,7 @@ UPDATED: Improved regex patterns to handle multiple spaces between duration comp
 UPDATED: Added support for "min" without spaces (e.g., 17min, 23s) - handles 1hr 17min 23s format
 UPDATED: Added support for "+" and "=" pattern (e.g., 1hr 17min 23s + 26min 48s = 1hr 44min 11s)
 UPDATED: Added support for minutes+seconds pattern (e.g., 38m 58s) in addition calculations
+UPDATED: Added support for "m" without spaces (e.g., 56m 40s) - handles minutes+seconds without hours
 """
 
 import re
@@ -107,6 +108,7 @@ def parse_duration(raw: str) -> str:
     - "1hr 38 min 39s" → 01:38:39 (hr with space, min with space)
     - "1hr 17min 23s + 26min 48s = 1hr 44min 11s" → 01:44:11 (addition with = pattern)
     - "1h 31m 27s + 38m 58s" → 02:10:25 (addition with minutes+seconds)
+    - "56m 40s + 39m 25s" → 01:36:05 (addition with minutes+seconds)
     """
     if not raw:
         return "00:00:00"
@@ -207,6 +209,12 @@ def parse_duration(raw: str) -> str:
     if match:
         h, m, s = int(match.group(1)), int(match.group(2)), int(match.group(3))
         return f"{h:02d}:{m:02d}:{s:02d}"
+    
+    # Handle "56m 40s" format (minutes + seconds, no hours)
+    match = re.search(r'(\d+)\s*m\s*(\d+)\s*s', clean_raw, re.IGNORECASE)
+    if match:
+        m, s = int(match.group(1)), int(match.group(2))
+        return f"00:{m:02d}:{s:02d}"
     
     # Handle multiple durations with "+" and text additions (including "mins" plural)
     if '+' in clean_raw or re.search(r'(also add|add|plus|additional)', clean_raw, re.IGNORECASE):
@@ -334,6 +342,13 @@ def _duration_to_seconds(duration_str: str) -> int:
     # PRIORITY 2: MINUTES + SECONDS (NO HOURS)
     # These must be checked BEFORE just-seconds patterns
     # ============================================================
+    
+    # Handle "56m 40s" format (minutes + seconds, no hours) - WITH 'm' and 's'
+    match = re.search(r'(\d+)\s*m\s*(\d+)\s*s', duration_str, re.IGNORECASE)
+    if match:
+        m, s = int(match.group(1)), int(match.group(2))
+        total_seconds += m * 60 + s
+        return total_seconds
     
     # Handle "38m 58s" format (minutes + seconds, no hours)
     match = re.search(r'(\d+)\s*m(?:in)?s?\s*(\d+)\s*s(?:ec)?s?', duration_str, re.IGNORECASE)
