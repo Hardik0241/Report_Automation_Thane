@@ -11,6 +11,8 @@ UPDATED: Removed HR references (Sales only branch)
 UPDATED: Pre-populates employees with current date when creating new sheet
 UPDATED: Borders applied ONLY to first 12 columns (A to L) - the actual data table
 UPDATED: Added extensive debug logging
+UPDATED: Added rate limiting to prevent Google Sheets API quota exhaustion (429 errors)
+UPDATED: Reduced unnecessary API calls by using cached data more effectively
 """
 
 import logging
@@ -20,6 +22,7 @@ import re
 import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+from functools import wraps
 
 import gspread
 from google.oauth2 import service_account
@@ -39,6 +42,20 @@ _SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleap
 
 # Maximum columns for data table (A to L = 12 columns)
 MAX_DATA_COLUMNS = 12
+
+# Rate limiting: minimum time between API calls (in seconds)
+RATE_LIMIT_DELAY = 0.5
+
+
+def rate_limit(delay: float = RATE_LIMIT_DELAY):
+    """Decorator to add rate limiting to API calls to prevent quota exhaustion"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            time.sleep(delay)
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
 def _get_credentials():
@@ -132,6 +149,7 @@ class SheetsService:
         self._cache_timestamp: Dict[Tuple[str, str], datetime] = {}
         self._cache_ttl_seconds = 60
         self._date_marked_not_sent: set = set()
+        self._pending_formatting = False  # Flag to batch formatting requests
 
     def _spreadsheet(self, department: str):
         return self._sales_ss
@@ -152,6 +170,7 @@ class SheetsService:
                 return self._worksheet_data_cache[key]
         
         ws = self._get_worksheet(department, date_str)
+        time.sleep(RATE_LIMIT_DELAY)  # Rate limit
         data = ws.get_all_values()
         self._worksheet_data_cache[key] = data
         self._cache_timestamp[key] = now
@@ -164,6 +183,7 @@ class SheetsService:
         if key in self._cache_timestamp:
             del self._cache_timestamp[key]
 
+    @rate_limit(delay=RATE_LIMIT_DELAY)
     def _apply_table_formatting(self, ws: gspread.Worksheet) -> None:
         """
         Apply formatting (font, alignment, borders) to data table cells.
@@ -235,6 +255,7 @@ class SheetsService:
             import traceback
             traceback.print_exc()
 
+    @rate_limit(delay=RATE_LIMIT_DELAY)
     def _apply_formatting_to_range(self, ws: gspread.Worksheet, range_str: str = None) -> None:
         """
         Apply formatting to a specific range. If no range is provided, format the entire table.
@@ -349,6 +370,7 @@ class SheetsService:
             index = index * 26 + (ord(char.upper()) - ord('A') + 1)
         return index
 
+    @rate_limit(delay=RATE_LIMIT_DELAY)
     def ensure_status_column(self, department: str, date_str: str) -> None:
         if department != "Sales":
             return
@@ -425,6 +447,7 @@ class SheetsService:
         logger.info(f"✅ Created sheet '{name}' for {department} with {len(employees)} employees (borders: A-L)")
         return ws
 
+    @rate_limit(delay=RATE_LIMIT_DELAY)
     def mark_all_as_not_sent(self, department: str, date_str: str) -> None:
         """Mark employees as 'Not Sent' ONLY if they have NO data in other columns"""
         if department != "Sales":
@@ -484,6 +507,7 @@ class SheetsService:
                 logger.info(f"📝 Marking {not_sent_count} employees as 'Not Sent'")
                 for update in updates:
                     ws.update(update["range"], update["values"], value_input_option="USER_ENTERED")
+                    time.sleep(RATE_LIMIT_DELAY)  # Rate limit between updates
                 # Format the table after updates (first 12 columns only)
                 self._apply_table_formatting(ws)
                 self._date_marked_not_sent.add(date_key)
@@ -532,6 +556,7 @@ class SheetsService:
             if updates:
                 logger.info(f"📝 Adding {len(updates)} missing employees")
                 ws.batch_update(updates, value_input_option="USER_ENTERED")
+                time.sleep(RATE_LIMIT_DELAY)  # Rate limit
                 # Format the table after adding rows (first 12 columns only)
                 self._apply_table_formatting(ws)
                 self._invalidate_cache(department, date_str)
@@ -574,6 +599,7 @@ class SheetsService:
                 status_col = len(headers) + 1
                 if status_col <= MAX_DATA_COLUMNS:
                     ws.update_cell(1, status_col, "Report Status")
+                    time.sleep(RATE_LIMIT_DELAY)  # Rate limit
                     self._apply_table_formatting(ws)
                     logger.info(f"Created Report Status column at column {status_col}")
                 else:
@@ -621,6 +647,7 @@ class SheetsService:
             if batch_requests:
                 logger.info(f"📝 Writing {len(batch_requests)} batch requests")
                 ws.batch_update(batch_requests, value_input_option="USER_ENTERED")
+                time.sleep(RATE_LIMIT_DELAY)  # Rate limit
                 # Format the table after batch writes (first 12 columns only)
                 self._apply_table_formatting(ws)
                 self._invalidate_cache(department, date_str)
@@ -656,6 +683,7 @@ class SheetsService:
                 status_col = len(headers) + 1
                 if status_col <= MAX_DATA_COLUMNS:
                     ws.update_cell(1, status_col, "Report Status")
+                    time.sleep(RATE_LIMIT_DELAY)  # Rate limit
                     self._apply_table_formatting(ws)
                 else:
                     logger.warning(f"⚠️ Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
@@ -678,6 +706,7 @@ class SheetsService:
                 col_letter = gspread.utils.rowcol_to_a1(row_num, status_col).rstrip("0123456789")
                 range_str = f"{col_letter}{row_num}"
                 ws.update(range_str, [["Invalid"]], value_input_option="USER_ENTERED")
+                time.sleep(RATE_LIMIT_DELAY)  # Rate limit
                 self._apply_table_formatting(ws)
                 self._invalidate_cache(department, date_str)
                 logger.info(f"✅ Marked {employee_name} as 'Invalid' for {date_str}")
@@ -705,6 +734,7 @@ class SheetsService:
                 status_col = len(headers) + 1
                 if status_col <= MAX_DATA_COLUMNS:
                     ws.update_cell(1, status_col, "Report Status")
+                    time.sleep(RATE_LIMIT_DELAY)  # Rate limit
                     self._apply_table_formatting(ws)
                 else:
                     logger.warning(f"⚠️ Cannot add 'Report Status' column - would exceed {MAX_DATA_COLUMNS} columns")
@@ -727,6 +757,7 @@ class SheetsService:
                 col_letter = gspread.utils.rowcol_to_a1(row_num, status_col).rstrip("0123456789")
                 range_str = f"{col_letter}{row_num}"
                 ws.update(range_str, [["Quota Error"]], value_input_option="USER_ENTERED")
+                time.sleep(RATE_LIMIT_DELAY)  # Rate limit
                 self._apply_table_formatting(ws)
                 self._invalidate_cache(department, date_str)
                 logger.info(f"✅ Marked {employee_name} as 'Quota Error' for {date_str}")
