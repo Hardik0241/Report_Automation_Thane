@@ -22,6 +22,8 @@ UPDATED: Added support for "hr" + "min" with spaces (e.g., 1hr 38 min 39s)
 UPDATED: Added support for "min" with spaces around it (e.g., 38 min)
 UPDATED: Added support for "min" without spaces (e.g., 17min, 23s) - handles 1hr 17min 23s format
 UPDATED: Added support for "+" and "=" pattern (e.g., 1hr 17min 23s + 26min 48s = 1hr 44min 11s)
+UPDATED: Added support for MULTI-ADDITION patterns in grab_duration (e.g., "1h 06m 11s + 1m 3s + 2m 42s")
+UPDATED: Updated _BASE_PROMPT to instruct Gemini to include FULL "+" chain in Duration
 """
 
 import json
@@ -69,7 +71,8 @@ Rules:
 - Use 0 for missing integer fields.
 - Use "00:00:00" for missing duration.
 - If the email contains "Leave" or "leave" anywhere, mark as "Leave" and skip.
-- Duration can be in formats: "1h 0m 35s", "1H 15M + 14M", "1 H 31 M", "1hr 25m 21s", "01:28:52", "02.07.36", "2.08.32", "1h 42m 8sec", "1hr 14m 21s", "1hr 25min 46s", "49 MINS 9 SEC", "1hr 9min 47sec", "58:14", "1 hr 14m 18 secs + 13 mins + 6 mins", "1hr 38 min 39s", "1hr 17min 23s + 26min 48s = 1hr 44min 11s"
+- Duration can be in formats: "1h 0m 35s", "1H 15M + 14M", "1 H 31 M", "1hr 25m 21s", "01:28:52", "02.07.36", "2.08.32", "1h 42m 8sec", "1hr 14m 21s", "1hr 25min 46s", "49 MINS 9 SEC", "1hr 9min 47sec", "58:14", "1 hr 14m 18 secs + 13 mins + 6 mins", "1hr 38 min 39s", "1hr 17min 23s + 26min 48s = 1hr 44min 11s", "1h 06m 11s + 1m 3s + 2m 42s", "1h 42 m + 6 m"
+- CRITICAL: If the Duration field contains one or more "+" signs (e.g., "1h 06m 11s + 1m 3s + 2m 42s"), extract the FULL expression INCLUDING ALL "+" parts into the Duration field. Do NOT stop at the first duration. Do NOT simplify or calculate. The downstream code will calculate the total.
 
 Email content:
 """
@@ -191,6 +194,32 @@ class GeminiParser:
         def grab_duration(keywords: list) -> str:
             for kw in keywords:
                 kw_esc = re.escape(kw)
+
+                # ============================================================
+                # ✅ NEW PRIORITY 0: MULTI-ADDITION CHAIN
+                # Captures full "X + Y + Z" chains (e.g., "1h 06m 11s + 1m 3s + 2m 42s")
+                # This MUST come before any single-duration pattern, otherwise
+                # a single-duration pattern would match the first segment and return.
+                # ============================================================
+
+                # Multi-addition with hours + minutes + seconds, plus minutes + seconds parts
+                # Pattern: "<duration>+<duration>+" (at least 2 "+" signs / 3 parts)
+                pattern_multi_chain = rf"(?i){kw_esc}[\s]*[:=-][\s]*(\d+\s*h(?:r)?\s*\d+\s*m(?:in)?\s*\d+\s*s(?:ec)?(?:\s*\+\s*\d+\s*m(?:in)?\s*\d+\s*s(?:ec)?)+)"
+                match = re.search(pattern_multi_chain, text)
+                if match:
+                    return match.group(1).strip()
+
+                # Multi-addition with hours + minutes (no seconds) + minutes parts
+                pattern_multi_chain_hm = rf"(?i){kw_esc}[\s]*[:=-][\s]*(\d+\s*h(?:r)?\s*\d+\s*m(?:in)?s?(?:\s*\+\s*\d+\s*m(?:in)?s?)+)"
+                match = re.search(pattern_multi_chain_hm, text)
+                if match:
+                    return match.group(1).strip()
+
+                # Multi-addition with minutes + seconds only, plus more minutes+seconds
+                pattern_multi_chain_ms = rf"(?i){kw_esc}[\s]*[:=-][\s]*(\d+\s*m(?:in)?\s*\d+\s*s(?:ec)?(?:\s*\+\s*\d+\s*m(?:in)?\s*\d+\s*s(?:ec)?)+)"
+                match = re.search(pattern_multi_chain_ms, text)
+                if match:
+                    return match.group(1).strip()
 
                 pattern_time = rf"(?i){kw_esc}[\s]*[:=-][\s]*(\d{{2}}:\d{{2}}:\d{{2}})"
                 match = re.search(pattern_time, text)
@@ -370,6 +399,11 @@ class GeminiParser:
     def _extract_duration_flexible(text: str) -> str:
         if 'leave' in text.lower():
             return "00:00:00"
+
+        # ✅ NEW: Handle multi-addition FIRST (e.g., "1h 06m 11s + 1m 3s + 2m 42s")
+        match = re.search(r'(\d+\s*h(?:r)?\s*\d+\s*m(?:in)?\s*\d+\s*s(?:ec)?(?:\s*\+\s*\d+\s*m(?:in)?\s*\d+\s*s(?:ec)?)+)', text, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
 
         match = re.search(r'(\d{2}):(\d{2}):(\d{2})', text)
         if match:
