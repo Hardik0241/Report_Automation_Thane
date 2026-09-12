@@ -21,6 +21,7 @@ UPDATED: Added support for "min" without spaces (e.g., 17min, 23s) - handles 1hr
 UPDATED: Added support for "+" and "=" pattern (e.g., 1hr 17min 23s + 26min 48s = 1hr 44min 11s)
 UPDATED: Added support for minutes+seconds pattern (e.g., 38m 58s) in addition calculations
 UPDATED: Added support for "m" without spaces (e.g., 56m 40s) - handles minutes+seconds without hours
+UPDATED: MOVED addition (+) check to TOP of parse_duration - fixes multi-addition like "1h 06m 11s + 1m 3s + 2m 42s"
 """
 
 import re
@@ -109,6 +110,7 @@ def parse_duration(raw: str) -> str:
     - "1hr 17min 23s + 26min 48s = 1hr 44min 11s" → 01:44:11 (addition with = pattern)
     - "1h 31m 27s + 38m 58s" → 02:10:25 (addition with minutes+seconds)
     - "56m 40s + 39m 25s" → 01:36:05 (addition with minutes+seconds)
+    - "1h 06m 11s + 1m 3s + 2m 42s" → 01:09:56 (multi-addition with 3 parts)
     """
     if not raw:
         return "00:00:00"
@@ -120,6 +122,20 @@ def parse_duration(raw: str) -> str:
     
     # First, clean the string by removing common prefixes like "Duration :- "
     clean_raw = re.sub(r'^(duration|dur|talk time|time|total duration)\s*[:=-]+\s*', '', raw, flags=re.IGNORECASE)
+    
+    # ============================================================
+    # ✅ NEW: Handle ALL addition patterns FIRST — before single-duration
+    # patterns can match and return early. This fixes multi-addition like
+    # "1h 06m 11s + 1m 3s + 2m 42s" where the old code would return
+    # just "01:06:11" because a single-duration pattern matched first.
+    # ============================================================
+    if '+' in clean_raw or re.search(r'(also add|add|plus|additional)', clean_raw, re.IGNORECASE):
+        total_seconds = 0
+        parts = re.split(r'[\+]|also add|add|plus|additional', clean_raw, flags=re.IGNORECASE)
+        for part in parts:
+            if part.strip():
+                total_seconds += _duration_to_seconds(part.strip())
+        return _seconds_to_hms(total_seconds)
     
     # Handle HH:MM:SS format with colons (exactly 2 digits each)
     match = re.search(r'(\d{2}):(\d{2}):(\d{2})', clean_raw)
@@ -215,17 +231,6 @@ def parse_duration(raw: str) -> str:
     if match:
         m, s = int(match.group(1)), int(match.group(2))
         return f"00:{m:02d}:{s:02d}"
-    
-    # Handle multiple durations with "+" and text additions (including "mins" plural)
-    if '+' in clean_raw or re.search(r'(also add|add|plus|additional)', clean_raw, re.IGNORECASE):
-        total_seconds = 0
-        
-        # Split by common separators
-        parts = re.split(r'[\+]|also add|add|plus|additional', clean_raw, flags=re.IGNORECASE)
-        for part in parts:
-            if part.strip():
-                total_seconds += _duration_to_seconds(part.strip())
-        return _seconds_to_hms(total_seconds)
     
     seconds = _duration_to_seconds(clean_raw)
     return _seconds_to_hms(seconds)
