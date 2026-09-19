@@ -24,6 +24,7 @@ SALES_EMPLOYEES = [
     "Akanksha", "Ajay", "Mohit", "Shivani", "Bhagyashree", "Sahil",
     "Shubham", "Tisha", "Vidhi", "Nayum", "Hriday",
     "Swati", "Laveena", "Aadarsh", "Roy", "Mohit R",
+    "Rakhi", "Rishabh", "Uzma", "Bhushan",
 ]
 
 # ============================================================
@@ -46,6 +47,10 @@ SALES_EMAIL_MAP = {
     "aadarshd.edujam@gmail.com": "Aadarsh",
     "roy.edujam@gmail.com": "Roy",
     "mohitr.edujam@gmail.com": "Mohit R",
+    "rakhid.edujam@gmail.com": "Rakhi",
+    "rishabhb.edujam@gmail.com": "Rishabh",
+    "uzma.edujam@gmail.com": "Uzma",
+    "bhushan.edujam@gmail.com": "Bhushan",
 }
 
 # ============================================================
@@ -60,7 +65,7 @@ GMAIL_QUERY = f"({FROM_QUERY}) is:unread"
 # ============================================================
 # MAX EMAILS PER RUN
 # ============================================================
-MAX_EMAILS_PER_RUN = 40
+MAX_EMAILS_PER_RUN = 27
 
 # ============================================================
 # SALES DEADLINE RULE - 09:00 PM IST
