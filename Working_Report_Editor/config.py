@@ -24,7 +24,7 @@ SALES_EMPLOYEES = [
     "Akanksha", "Ajay", "Mohit", "Shivani", "Bhagyashree", "Sahil",
     "Shubham", "Tisha", "Vidhi", "Nayum", "Hriday",
     "Swati", "Aadarsh", "Roy", "Mohit R",
-    "Rakhi", "Rishabh", "Uzma", "Bhushan",
+    "Rakhi", "Rishabh", "Uzma",
 ]
 
 # ============================================================
@@ -49,7 +49,6 @@ SALES_EMAIL_MAP = {
     "rakhid.edujam@gmail.com": "Rakhi",
     "rishabhb.edujam@gmail.com": "Rishabh",
     "uzma.edujam@gmail.com": "Uzma",
-    "bhushan.edujam@gmail.com": "Bhushan",
 }
 
 # ============================================================
